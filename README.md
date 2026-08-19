@@ -46,10 +46,43 @@ Alcune funzioni dipendono dalle capacità esposte dal firmware installato sul di
 | **2. Home e gestione slot** — stato del dispositivo, batteria, firmware e selezione degli slot disponibili. | <img src="docs/images/02-home.png" alt="Home del Chameleon Ultra e gestione slot" width="280"> |
 | **3. MFKEY32** — acquisizione assistita, conteggio letture, gruppi compatibili e chiavi recuperate. | <img src="docs/images/03-mfkey32.png" alt="Pagina MFKEY32" width="280"> |
 | **4. Lettura HF e LF** — riconoscimento guidato della tecnologia e scelta automatica del percorso di lettura appropriato. | <img src="docs/images/04-read-card.png" alt="Pagina di lettura delle carte HF e LF" width="280"> |
-| **5. Strumenti LF/HF** — dizionari, pulizia T55XX e analisi delle acquisizioni Sniffing. | <img src="docs/images/05-tools-sniffing.png" alt="Strumenti e funzioni Sniffing LF e HF" width="280"> |
-| **6. Connessione automatica** — resta in attesa del Chameleon e si collega quando diventa disponibile. | <img src="docs/images/06-automatic-connection.png" alt="Impostazione della connessione automatica" width="280"> |
+| **5. Analisi credenziale LF** — formato, Facility Code, numero credenziale, dati tecnici e collegamento all’analisi avanzata. I valori identificativi sono oscurati nell’immagine. | <img src="docs/images/05-lf-credential-analysis.png" alt="Analisi di una credenziale LF con valori oscurati" width="280"> |
+| **6. Strumenti LF/HF** — dizionari, pulizia T55XX e analisi delle acquisizioni Sniffing. | <img src="docs/images/06-tools-sniffing.png" alt="Strumenti e funzioni Sniffing LF e HF" width="280"> |
+| **7. Connessione automatica** — resta in attesa del Chameleon e si collega quando diventa disponibile. | <img src="docs/images/07-automatic-connection.png" alt="Impostazione della connessione automatica" width="280"> |
 
 Le schermate non contengono UID di carte, chiavi o identificativi Bluetooth reali.
+
+## Lettura HF Tag e LF Tag
+
+### HF Tag
+
+La sezione **HF Tag Info** legge le carte ad alta frequenza ISO/IEC 14443-A e
+mostra `UID`, `SAK`, `ATQA`, `ATS` e la tecnologia riconosciuta. Il fork aggiunge:
+
+- distinzione automatica tra MIFARE Classic, Ultralight/NTAG e carte
+  ISO/IEC 14443-4, con conferma DESFire quando il firmware supporta il comando
+  APDU 6004;
+- per MIFARE Classic, uso del solo dizionario selezionato, un singolo ciclo,
+  avanzamento, annullamento e recupero automatico delle chiavi ancora mancanti;
+- pianificazione del recupero Classic in base alle chiavi già disponibili e
+  alle possibilità Darkside/Nested, evitando tentativi non necessari;
+- per NTAG/Ultralight, lettura iniziale senza chiave, riconoscimento del tipo e
+  analisi di versione, firma, contatori e impostazioni di protezione; l’audit
+  password viene proposto soltanto quando pertinente.
+
+### LF Tag
+
+La sezione **LF Tag Info** legge le credenziali a bassa frequenza e indica la
+tecnologia rilevata. Una credenziale LF normalmente trasmette un identificativo
+e non possiede pagine di memoria come una carta HF. Per HID Prox e Indala il
+fork aggiunge:
+
+- riconoscimento del formato e decodifica di Facility Code e numero credenziale;
+- pannello tecnico espandibile con UID esadecimale, codice formato, Issue Level,
+  OEM e dati interni codificati;
+- scansione continua annullabile, salvataggio del risultato e collegamento
+  diretto all’analisi LF avanzata con sommario, forma d’onda, decodifica e dati
+  esadecimali.
 
 ## Installazione Android
 
