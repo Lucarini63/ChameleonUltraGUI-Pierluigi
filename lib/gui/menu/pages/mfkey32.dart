@@ -25,13 +25,20 @@ class Mfkey32Menu extends StatefulWidget {
 }
 
 class Mfkey32MenuState extends State<Mfkey32Menu> {
+  static const int _maxPairsPerAnalysisBatch = 32;
+  static const Duration _analysisPairTimeout = Duration(seconds: 20);
+
   Timer? _pollTimer;
+  ChameleonGUIState? _appState;
+  bool _wasConnected = false;
+  int _sessionGeneration = 0;
   bool _checkingSlot = true;
   bool _slotCompatible = false;
   bool _collecting = false;
   bool _analyzing = false;
   bool _polling = false;
   bool _hasStarted = false;
+  bool _restartFromZeroRequired = false;
   int _detectionCount = 0;
   int _usableGroups = 0;
   int _completedPairs = 0;
@@ -64,19 +71,78 @@ class Mfkey32MenuState extends State<Mfkey32Menu> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final appState = context.read<ChameleonGUIState>();
+    if (!identical(_appState, appState)) {
+      _appState?.removeListener(_handleConnectionChange);
+      _appState = appState;
+      _wasConnected = appState.connector?.connected ?? false;
+      appState.addListener(_handleConnectionChange);
+    }
+  }
+
+  @override
   void dispose() {
     _pollTimer?.cancel();
-    if (_collecting) {
-      final communicator = context.read<ChameleonGUIState>().communicator;
-      if (communicator != null) {
-        unawaited(communicator.setMf1DetectionStatus(false).catchError((_) {}));
-      }
-    }
+    _appState?.removeListener(_handleConnectionChange);
     super.dispose();
+  }
+
+  bool get _isDeviceConnected => _appState?.connector?.connected ?? false;
+
+  bool _isCurrentSession(int generation) =>
+      mounted && generation == _sessionGeneration && _isDeviceConnected;
+
+  void _handleConnectionChange() {
+    final connected = _isDeviceConnected;
+    if (_wasConnected && !connected) {
+      _resetAfterDisconnect();
+    }
+    _wasConnected = connected;
+  }
+
+  void _resetAfterDisconnect() {
+    if (!mounted) return;
+    _pollTimer?.cancel();
+    _sessionGeneration++;
+    setState(() {
+      _checkingSlot = false;
+      _slotCompatible = false;
+      _collecting = false;
+      _analyzing = false;
+      _polling = false;
+      _hasStarted = false;
+      _restartFromZeroRequired = true;
+      _detectionCount = 0;
+      _usableGroups = 0;
+      _completedPairs = 0;
+      _totalPairs = 0;
+      _lastAnalyzedCount = -1;
+      _error = null;
+      _status = text.deviceDisconnected;
+      _readingCard = false;
+      _uploadingCard = false;
+      _workflowProgress = null;
+      _readBlocks = 0;
+      _totalBlocks = 0;
+      _emulationSlot = null;
+      _savedCard = null;
+      _dumpComplete = false;
+      _detectedSlotIndex = null;
+      _activeCardRecovery = null;
+      _attemptedPairs.clear();
+      _results.clear();
+    });
   }
 
   Future<void> _inspectSlot() async {
     if (!mounted) return;
+    if (!_isDeviceConnected) {
+      _resetAfterDisconnect();
+      return;
+    }
+    final generation = ++_sessionGeneration;
     setState(() {
       _checkingSlot = true;
       _error = null;
@@ -89,55 +155,103 @@ class Mfkey32MenuState extends State<Mfkey32Menu> {
       final appState = context.read<ChameleonGUIState>();
       final communicator = appState.communicator!;
       final slots = await communicator.getSlotTagTypes();
+      if (!_isCurrentSession(generation)) return;
       var selectedSlot = widget.slot;
       var compatible = false;
+      var collectionActive = false;
 
       if (selectedSlot != null) {
         compatible = selectedSlot >= 0 &&
             selectedSlot < slots.length &&
             isMifareClassic(slots[selectedSlot].hf);
+        if (compatible) {
+          final originalSlot = await communicator.getActiveSlot();
+          final wasReaderMode = await communicator.isReaderDeviceMode();
+          try {
+            await communicator.setReaderDeviceMode(false);
+            await communicator.activateSlot(selectedSlot);
+            collectionActive = await communicator.isMf1DetectionMode();
+          } finally {
+            if (originalSlot != selectedSlot) {
+              await communicator.activateSlot(originalSlot);
+            }
+            if (wasReaderMode) {
+              await communicator.setReaderDeviceMode(true);
+            }
+          }
+        }
       } else {
         final originalSlot = await communicator.getActiveSlot();
         final wasReaderMode = await communicator.isReaderDeviceMode();
-        await communicator.setReaderDeviceMode(false);
+        try {
+          await communicator.setReaderDeviceMode(false);
 
-        final candidates = <int>[
-          if (originalSlot >= 0 && originalSlot < slots.length) originalSlot,
-          for (var index = 0; index < slots.length; index++)
-            if (index != originalSlot) index,
-        ];
+          final candidates = <int>[
+            if (originalSlot >= 0 && originalSlot < slots.length) originalSlot,
+            for (var index = 0; index < slots.length; index++)
+              if (index != originalSlot) index,
+          ];
 
-        for (final index in candidates) {
-          if (!isMifareClassic(slots[index].hf)) continue;
-          await communicator.activateSlot(index);
-          if (await communicator.isMf1DetectionMode()) {
-            selectedSlot = index;
-            compatible = true;
-            break;
+          for (final index in candidates) {
+            if (!isMifareClassic(slots[index].hf)) continue;
+            await communicator.activateSlot(index);
+            if (await communicator.isMf1DetectionMode()) {
+              selectedSlot = index;
+              compatible = true;
+              collectionActive = true;
+              break;
+            }
           }
-        }
 
-        if (selectedSlot == null) {
-          await communicator.activateSlot(originalSlot);
-          if (wasReaderMode) {
-            await communicator.setReaderDeviceMode(true);
+          if (selectedSlot == null) {
+            await communicator.activateSlot(originalSlot);
+            if (wasReaderMode) {
+              await communicator.setReaderDeviceMode(true);
+            }
+
+            final originalSlotIsClassic = originalSlot >= 0 &&
+                originalSlot < slots.length &&
+                isMifareClassic(slots[originalSlot].hf);
+            final fallbackSlot = originalSlotIsClassic
+                ? originalSlot
+                : slots.indexWhere((slot) => isMifareClassic(slot.hf));
+            if (fallbackSlot >= 0) {
+              selectedSlot = fallbackSlot;
+              compatible = true;
+            }
           }
+        } catch (_) {
+          try {
+            await communicator.activateSlot(originalSlot);
+            if (wasReaderMode) {
+              await communicator.setReaderDeviceMode(true);
+            }
+          } catch (_) {
+            // Preserve the original inspection error.
+          }
+          rethrow;
         }
       }
 
-      if (!mounted) return;
+      if (!_isCurrentSession(generation)) return;
       setState(() {
         _detectedSlotIndex = selectedSlot;
         _slotCompatible = compatible;
         _checkingSlot = false;
         _status = compatible
-            ? text.slotReady((selectedSlot ?? 7) + 1)
+            ? collectionActive
+                ? text.slotReady((selectedSlot ?? 7) + 1)
+                : text.collectionCanBeRestarted((selectedSlot ?? 7) + 1)
             : widget.slot == null
-                ? text.noActiveCollection
+                ? text.noClassicSlot
                 : text.slotIncompatible(_slotNumber);
       });
     } catch (error) {
-      if (!mounted) return;
+      if (error is TimeoutException || !_isDeviceConnected) {
+        _resetAfterDisconnect();
+        return;
+      }
+      if (!_isCurrentSession(generation)) return;
       setState(() {
         _checkingSlot = false;
         _error = error.toString();
@@ -147,6 +261,11 @@ class Mfkey32MenuState extends State<Mfkey32Menu> {
 
   Future<void> _startAcquisition({bool reset = true}) async {
     if (!_slotCompatible || _collecting || _analyzing) return;
+    if (!_isDeviceConnected) {
+      _resetAfterDisconnect();
+      return;
+    }
+    final generation = ++_sessionGeneration;
 
     _pollTimer?.cancel();
     if (reset) {
@@ -170,19 +289,27 @@ class Mfkey32MenuState extends State<Mfkey32Menu> {
       final appState = context.read<ChameleonGUIState>();
       await appState.communicator!.setReaderDeviceMode(false);
       await appState.communicator!.activateSlot(_slotIndex);
-      if (!await appState.communicator!.isMf1DetectionMode()) {
+      if (_restartFromZeroRequired) {
+        await appState.communicator!.setMf1DetectionStatus(false);
+        await appState.communicator!.setMf1DetectionStatus(true);
+      } else if (!await appState.communicator!.isMf1DetectionMode()) {
         await appState.communicator!.setMf1DetectionStatus(true);
       }
 
-      if (!mounted) return;
+      if (!_isCurrentSession(generation)) return;
+      _restartFromZeroRequired = false;
       setState(() {
         _status = text.waitingForReader;
       });
 
-      await _pollDetections();
-      _schedulePolling();
+      await _pollDetections(generation: generation);
+      if (_isCurrentSession(generation)) _schedulePolling();
     } catch (error) {
-      if (!mounted) return;
+      if (error is TimeoutException || !_isDeviceConnected) {
+        _resetAfterDisconnect();
+        return;
+      }
+      if (!_isCurrentSession(generation)) return;
       setState(() {
         _collecting = false;
         _error = error.toString();
@@ -191,7 +318,7 @@ class Mfkey32MenuState extends State<Mfkey32Menu> {
   }
 
   void _schedulePolling() {
-    if (!mounted || !_collecting || _analyzing) return;
+    if (!mounted || !_collecting || _analyzing || !_isDeviceConnected) return;
     _pollTimer?.cancel();
     _pollTimer = Timer.periodic(
       const Duration(seconds: 1),
@@ -212,14 +339,19 @@ class Mfkey32MenuState extends State<Mfkey32Menu> {
     });
   }
 
-  Future<void> _pollDetections() async {
+  Future<void> _pollDetections({int? generation}) async {
+    if (!_isDeviceConnected) {
+      _resetAfterDisconnect();
+      return;
+    }
     if (_polling || !_collecting || _analyzing) return;
+    final activeGeneration = generation ?? _sessionGeneration;
     _polling = true;
 
     try {
       final appState = context.read<ChameleonGUIState>();
       final count = await appState.communicator!.getMf1DetectionCount();
-      if (!mounted) return;
+      if (!_isCurrentSession(activeGeneration)) return;
 
       if (count < 2) {
         setState(() {
@@ -237,11 +369,12 @@ class Mfkey32MenuState extends State<Mfkey32Menu> {
 
       final detections =
           await appState.communicator!.getMf1DetectionResult(count);
+      if (!_isCurrentSession(activeGeneration)) return;
       final groups = _buildGroups(detections);
       final usableGroups =
           groups.where((group) => group.records.length >= 2).toList();
 
-      if (!mounted) return;
+      if (!_isCurrentSession(activeGeneration)) return;
       setState(() {
         _detectionCount = count;
         _usableGroups = usableGroups.length;
@@ -254,16 +387,21 @@ class Mfkey32MenuState extends State<Mfkey32Menu> {
       }
 
       _pollTimer?.cancel();
-      await _analyzeGroups(usableGroups, count);
+      await _analyzeGroups(usableGroups, count, activeGeneration);
     } catch (error) {
-      if (!mounted) return;
+      if (error is TimeoutException || !_isDeviceConnected) {
+        _resetAfterDisconnect();
+        return;
+      }
+      if (!_isCurrentSession(activeGeneration)) return;
       setState(() {
         _collecting = false;
+        _analyzing = false;
         _error = error.toString();
       });
       _pollTimer?.cancel();
     } finally {
-      _polling = false;
+      if (activeGeneration == _sessionGeneration) _polling = false;
     }
   }
 
@@ -293,10 +431,12 @@ class Mfkey32MenuState extends State<Mfkey32Menu> {
   }
 
   Future<void> _analyzeGroups(
-      List<_Mfkey32Group> groups, int detectionCount) async {
+      List<_Mfkey32Group> groups, int detectionCount, int generation) async {
     final candidates = <_Mfkey32Candidate>[];
     final completedGroups = _results.map((result) => result.groupId).toSet();
+    var hasMorePendingCandidates = false;
 
+    candidateSearch:
     for (final group in groups) {
       if (completedGroups.contains(group.id)) continue;
       for (var first = 0; first < group.records.length; first++) {
@@ -307,6 +447,10 @@ class Mfkey32MenuState extends State<Mfkey32Menu> {
             second: group.records[second],
           );
           if (!_attemptedPairs.contains(candidate.id)) {
+            if (candidates.length == _maxPairsPerAnalysisBatch) {
+              hasMorePendingCandidates = true;
+              break candidateSearch;
+            }
             candidates.add(candidate);
           }
         }
@@ -334,16 +478,22 @@ class Mfkey32MenuState extends State<Mfkey32Menu> {
       if (groupsWithKeys.contains(candidate.group.id)) continue;
       _attemptedPairs.add(candidate.id);
 
-      final recovered = await recovery.mfkey32(Mfkey32Dart(
-        uid: candidate.group.uid,
-        nt0: candidate.first.nt,
-        nt1: candidate.second.nt,
-        nr0Enc: candidate.first.nr,
-        ar0Enc: candidate.first.ar,
-        nr1Enc: candidate.second.nr,
-        ar1Enc: candidate.second.ar,
-      ));
+      final recovered = await recovery
+          .mfkey32(Mfkey32Dart(
+            uid: candidate.group.uid,
+            nt0: candidate.first.nt,
+            nt1: candidate.second.nt,
+            nr0Enc: candidate.first.nr,
+            ar0Enc: candidate.first.ar,
+            nr1Enc: candidate.second.nr,
+            ar1Enc: candidate.second.ar,
+          ))
+          .timeout(_analysisPairTimeout);
+      if (!_isCurrentSession(generation)) return;
 
+      if (recovered.isEmpty) {
+        throw StateError(text.invalidRecoveryResult);
+      }
       final rawKey = recovered.first;
       final rawBytes = u64ToBytes(rawKey);
       final failed = rawKey == -1 || rawBytes.every((byte) => byte == 0xff);
@@ -361,19 +511,19 @@ class Mfkey32MenuState extends State<Mfkey32Menu> {
         groupsWithKeys.add(candidate.group.id);
       }
 
-      if (!mounted) return;
+      if (!_isCurrentSession(generation)) return;
       setState(() => _completedPairs++);
     }
 
-    _lastAnalyzedCount = detectionCount;
-    if (!mounted) return;
+    _lastAnalyzedCount =
+        hasMorePendingCandidates && _results.isEmpty ? -1 : detectionCount;
+    if (!_isCurrentSession(generation)) return;
     if (_results.isNotEmpty) {
       try {
-        final appState = context.read<ChameleonGUIState>();
-        await appState.communicator!.setMf1DetectionStatus(false);
+        await _appState!.communicator!.setMf1DetectionStatus(false);
       } catch (_) {}
     }
-    if (!mounted) return;
+    if (!_isCurrentSession(generation)) return;
     setState(() {
       _analyzing = false;
       _collecting = _results.isEmpty;
@@ -957,14 +1107,17 @@ class Mfkey32Text {
   String get searchingActiveCollection => italian
       ? 'Ricerca dello slot con raccolta nonce attiva…'
       : 'Searching for a slot with active nonce collection…';
-  String get noActiveCollection => italian
-      ? 'Nessuno slot MIFARE Classic ha la raccolta nonce attiva.'
-      : 'No MIFARE Classic slot has active nonce collection.';
+  String get noClassicSlot => italian
+      ? 'Nessuno slot è configurato come MIFARE Classic.'
+      : 'No slot is configured as MIFARE Classic.';
   String checkingSlot(int slot) =>
       italian ? 'Controllo dello slot $slot…' : 'Checking slot $slot…';
   String slotReady(int slot) => italian
       ? 'Slot $slot pronto per MFKEY32'
       : 'Slot $slot is ready for MFKEY32';
+  String collectionCanBeRestarted(int slot) => italian
+      ? 'La raccolta nonce non è attiva. Premi Avvia per riattivarla nello slot $slot.'
+      : 'Nonce collection is not active. Press Start to enable it again in slot $slot.';
   String slotIncompatible(int slot) => italian
       ? 'Lo slot $slot deve essere configurato come MIFARE Classic.'
       : 'Slot $slot must be configured as MIFARE Classic.';
@@ -991,12 +1144,18 @@ class Mfkey32Text {
   String get analyzing => italian
       ? 'Analisi automatica in corso…'
       : 'Automatic analysis in progress…';
+  String get invalidRecoveryResult => italian
+      ? 'MFKEY32 non ha restituito un risultato valido.'
+      : 'MFKEY32 did not return a valid result.';
   String get noKeyYet => italian
       ? 'Nessuna chiave trovata: acquisisci altre letture.'
       : 'No key found: collect more reads.';
   String get keysFound => italian ? 'Chiave trovata.' : 'Key found.';
   String get stopped =>
       italian ? 'Acquisizione interrotta.' : 'Acquisition stopped.';
+  String get deviceDisconnected => italian
+      ? 'Chameleon disconnesso. Ricollegalo, premi Controlla di nuovo e riavvia MFKEY32.'
+      : 'Chameleon disconnected. Reconnect it, press Check again, and restart MFKEY32.';
   String get start =>
       italian ? 'Avvia acquisizione MFKEY32' : 'Start MFKEY32 acquisition';
   String get stop => italian ? 'Interrompi' : 'Stop';

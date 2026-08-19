@@ -123,6 +123,9 @@ class ChameleonCommunicator {
       bool firstRun = false}) async {
     var startTime = DateTime.now();
     var dataFrame = makeDataFrameBytes(cmd, 0x00, data);
+    var commandQueued = false;
+    var retry = false;
+    ChameleonMessage? response;
 
     if (!_serialInstance!.isOpen) {
       await _serialInstance!.open();
@@ -130,52 +133,70 @@ class ChameleonCommunicator {
       _serialInstance!.isOpen = true;
     }
 
-    while (commandQueue.contains(cmd.value)) {
-      if (startTime.millisecondsSinceEpoch + (timeout.inMilliseconds * 2) <
-          DateTime.now().millisecondsSinceEpoch) {
-        throw ("Timeout waiting for queue for command ${cmd.value}");
+    try {
+      while (commandQueue.contains(cmd.value)) {
+        if (startTime.millisecondsSinceEpoch + (timeout.inMilliseconds * 2) <
+            DateTime.now().millisecondsSinceEpoch) {
+          throw ("Timeout waiting for queue for command ${cmd.value}");
+        }
+
+        await asyncSleep(1);
       }
 
-      await asyncSleep(1);
-    }
+      commandQueue.add(cmd.value);
+      commandQueued = true;
 
-    commandQueue.add(cmd.value);
+      log.t("Sending: ${bytesToHex(dataFrame)}");
+      log.d(
+          "Sending message: command = ${cmd.value}, data = ${bytesToHex(data ?? Uint8List(0))}");
 
-    log.t("Sending: ${bytesToHex(dataFrame)}");
-    log.d(
-        "Sending message: command = ${cmd.value}, data = ${bytesToHex(data ?? Uint8List(0))}");
+      final writeFuture = _serialInstance!
+          .write(Uint8List.fromList(dataFrame))
+          .timeout(const Duration(seconds: 5), onTimeout: () {
+        throw TimeoutException('Timeout scrittura su transport (${cmd.value})');
+      });
 
-    if (skipReceive) {
-      try {
-        await _serialInstance!.write(Uint8List.fromList(dataFrame));
-      } catch (_) {}
-      return null;
-    }
+      if (skipReceive) {
+        await writeFuture;
+        return null;
+      }
 
-    await _serialInstance!.write(Uint8List.fromList(dataFrame));
+      await writeFuture;
 
-    while (true) {
-      for (var message in messageQueue) {
-        if (message.command == cmd.value) {
-          messageQueue.remove(message);
-          commandQueue.remove(cmd.value);
-          return message;
+      while (response == null && !retry) {
+        for (var message in messageQueue) {
+          if (message.command == cmd.value) {
+            messageQueue.remove(message);
+            response = message;
+            break;
+          }
+        }
+
+        if (response == null &&
+            startTime.millisecondsSinceEpoch + timeout.inMilliseconds <
+                DateTime.now().millisecondsSinceEpoch) {
+          if (firstRun) {
+            retry = true;
+          } else {
+            // no luck
+            throw ("Timeout waiting for response for command ${cmd.value}");
+          }
+        }
+
+        if (response == null && !retry) {
+          await asyncSleep(1);
         }
       }
-
-      if (startTime.millisecondsSinceEpoch + timeout.inMilliseconds <
-          DateTime.now().millisecondsSinceEpoch) {
+    } finally {
+      if (commandQueued) {
         commandQueue.remove(cmd.value);
-        if (firstRun) {
-          sendCmd(cmd, data: data, timeout: timeout, firstRun: false);
-        } else {
-          // no luck
-          throw ("Timeout waiting for response for command ${cmd.value}");
-        }
       }
-
-      await asyncSleep(1);
     }
+
+    if (retry) {
+      return sendCmd(cmd, data: data, timeout: timeout, firstRun: false);
+    }
+    return response;
   }
 
   Uint8List _fromInt16BE(int value) {
@@ -475,27 +496,60 @@ class ChameleonCommunicator {
 
   Future<Map<int, Map<int, Map<String, List<DetectionResult>>>>>
       getMf1DetectionResult(int count) async {
-    List<DetectionResult> resultList = [];
+    const maxNoProgressAttempts = 3;
+    var noProgressAttempts = 0;
+    final resultList = <DetectionResult>[];
+
     while (resultList.length < count) {
+      final receivedBefore = resultList.length;
+
       // Get results from index
-      var resp = (await sendCmd(ChameleonCommand.mf1GetDetectionResult,
-              data: Uint8List(4)
-                ..buffer
-                    .asByteData()
-                    .setInt32(0, resultList.length, Endian.big)))!
-          .data;
+      Uint8List data;
+      try {
+        final response = await sendCmd(ChameleonCommand.mf1GetDetectionResult,
+            data: Uint8List(4)
+              ..buffer.asByteData().setInt32(0, resultList.length, Endian.big));
+        if (response == null) {
+          throw StateError('risposta assente');
+        }
+        data = response.data;
+      } catch (error) {
+        throw Exception(
+            'MFKEY32: acquisizione incompleta, ricevuti ${resultList.length} di $count record attesi: $error');
+      }
+
+      if (data.length % 18 != 0) {
+        throw FormatException(
+            'MFKEY32: risposta non valida (${data.length} byte, non multiplo di 18), ricevuti ${resultList.length} di $count record attesi');
+      }
 
       int pos = 0;
-      while (pos < resp.length) {
+      while (pos < data.length) {
         resultList.add(DetectionResult(
-            block: resp[0 + pos],
-            type: 0x60 + (resp[1 + pos] & 0x01),
-            isNested: (resp[1 + pos] >> 1 & 0x01) == 0x01,
-            uid: bytesToU32(resp.sublist(2 + pos, 6 + pos)),
-            nt: bytesToU32(resp.sublist(6 + pos, 10 + pos)),
-            nr: bytesToU32(resp.sublist(10 + pos, 14 + pos)),
-            ar: bytesToU32(resp.sublist(14 + pos, 18 + pos))));
+            block: data[0 + pos],
+            type: 0x60 + (data[1 + pos] & 0x01),
+            isNested: (data[1 + pos] >> 1 & 0x01) == 0x01,
+            uid: bytesToU32(data.sublist(2 + pos, 6 + pos)),
+            nt: bytesToU32(data.sublist(6 + pos, 10 + pos)),
+            nr: bytesToU32(data.sublist(10 + pos, 14 + pos)),
+            ar: bytesToU32(data.sublist(14 + pos, 18 + pos))));
         pos += 18;
+      }
+
+      if (resultList.length > count) {
+        log.w(
+            'MFKEY32: ricevuti ${resultList.length} record, ma ne erano attesi $count; i record in eccesso verranno ignorati.');
+        resultList.removeRange(count, resultList.length);
+      }
+
+      if (resultList.length == receivedBefore) {
+        noProgressAttempts++;
+        if (noProgressAttempts >= maxNoProgressAttempts) {
+          throw Exception(
+              'MFKEY32: acquisizione incompleta, ricevuti ${resultList.length} di $count record attesi dopo $maxNoProgressAttempts tentativi senza avanzamento');
+        }
+      } else {
+        noProgressAttempts = 0;
       }
     }
 
