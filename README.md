@@ -6,8 +6,9 @@ Interfaccia Flutter multipiattaforma per Chameleon Ultra e Chameleon Lite.
 
 > **Fork non ufficiale.** Questo repository deriva da
 > [GameTec-live/ChameleonUltraGUI](https://github.com/GameTec-live/ChameleonUltraGUI)
-> e contiene modifiche sviluppate per il fork di Pierluigi. Il progetto originale,
-> i relativi autori e tutti i contributori upstream mantengono i rispettivi crediti.
+> e contiene alcune modifiche e integrazioni realizzate da Pierluigi. Il programma,
+> la sua architettura e la maggior parte del codice sono opera degli autori e dei
+> contributori originali, ai quali appartengono il merito e la paternità del progetto.
 
 ## Funzioni principali
 
@@ -41,10 +42,12 @@ Alcune funzioni dipendono dalle capacità esposte dal firmware installato sul di
 
 | Funzione | Anteprima |
 | --- | --- |
-| **Connessione automatica** — resta in attesa del Chameleon e si collega quando diventa disponibile. | <img src="docs/images/automatic-connection.png" alt="Impostazione della connessione automatica" width="280"> |
-| **Lettura HF e LF** — riconoscimento guidato della tecnologia e scelta automatica del percorso di lettura appropriato. | <img src="docs/images/read-card.png" alt="Pagina di lettura delle carte HF e LF" width="280"> |
-| **Strumenti LF/HF** — dizionari, pulizia T55XX e analisi delle acquisizioni Sniffing. | <img src="docs/images/tools-sniffing.png" alt="Strumenti e funzioni Sniffing LF e HF" width="280"> |
-| **MFKEY32** — acquisizione assistita, conteggio letture, gruppi compatibili e chiavi recuperate. | <img src="docs/images/mfkey32.png" alt="Pagina MFKEY32" width="280"> |
+| **1. Connessione automatica** — resta in attesa del Chameleon e si collega quando diventa disponibile. | <img src="docs/images/01-automatic-connection.png" alt="Impostazione della connessione automatica" width="280"> |
+| **2. Connessione al dispositivo** — rilevamento del Chameleon Ultra tramite Bluetooth. | <img src="docs/images/02-connect.png" alt="Connessione Bluetooth al Chameleon Ultra" width="280"> |
+| **3. Lettura HF e LF** — riconoscimento guidato della tecnologia e scelta automatica del percorso di lettura appropriato. | <img src="docs/images/03-read-card.png" alt="Pagina di lettura delle carte HF e LF" width="280"> |
+| **4. Home e gestione slot** — stato del dispositivo, batteria, firmware e selezione degli slot disponibili. | <img src="docs/images/04-home.png" alt="Home del Chameleon Ultra e gestione slot" width="280"> |
+| **5. Strumenti LF/HF** — dizionari, pulizia T55XX e analisi delle acquisizioni Sniffing. | <img src="docs/images/05-tools-sniffing.png" alt="Strumenti e funzioni Sniffing LF e HF" width="280"> |
+| **6. MFKEY32** — acquisizione assistita, conteggio letture, gruppi compatibili e chiavi recuperate. | <img src="docs/images/06-mfkey32.png" alt="Pagina MFKEY32" width="280"> |
 
 Le schermate non contengono UID di carte, chiavi o identificativi Bluetooth reali.
 
@@ -105,6 +108,12 @@ esplicita. Il software non attribuisce identità o permessi partendo dal solo co
 di una credenziale.
 
 ## Crediti e progetto originale
+
+Un sentito ringraziamento va a tutte le persone che hanno ideato, progettato,
+sviluppato, tradotto, documentato e mantenuto ChameleonUltraGUI e i componenti
+su cui si basa. Questo fork non intende attribuirsi il merito del programma
+originale: Pierluigi ha realizzato soltanto alcune modifiche e integrazioni,
+mantenendo pieno riconoscimento agli autori e ai contributori upstream.
 
 - progetto upstream: [GameTec-live/ChameleonUltraGUI](https://github.com/GameTec-live/ChameleonUltraGUI);
 - autori e contributori originali: [pagina Contributors upstream](https://github.com/GameTec-live/ChameleonUltraGUI/graphs/contributors);
