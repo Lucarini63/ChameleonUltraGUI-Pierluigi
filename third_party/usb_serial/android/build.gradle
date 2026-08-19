@@ -1,0 +1,41 @@
+plugins {
+    id 'com.android.library'
+}
+
+group = 'dev.bessems.usbserial'
+version = '1.0'
+
+android {
+    namespace = 'dev.bessems.usbserial'
+    compileSdk = 36
+
+    defaultConfig {
+        minSdk = 21
+        testInstrumentationRunner = 'androidx.test.runner.AndroidJUnitRunner'
+    }
+
+    lint {
+        disable += 'InvalidPackage'
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+}
+
+repositories {
+    google()
+    mavenCentral()
+    maven { url = uri('https://jitpack.io') }
+}
+
+dependencies {
+    implementation('com.github.felHR85:UsbSerial:7ad6c9f6') {
+        artifact {
+            name = 'UsbSerial'
+            classifier = 'release'
+            type = 'aar'
+        }
+    }
+}

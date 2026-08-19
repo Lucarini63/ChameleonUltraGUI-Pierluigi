@@ -1,0 +1,14 @@
+# NTAG password audit dictionary
+# Use only on tags you own or are authorized to test.
+# The list is deliberately short and contains factory/default or visibly weak
+# test values. UID-derived password algorithms are intentionally excluded.
+FFFFFFFF
+00000000
+12345678
+11223344
+01020304
+A1B2C3D4
+AABBCCDD
+DEADBEEF
+CAFEBABE
+4E544147

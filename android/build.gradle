@@ -1,0 +1,30 @@
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+        maven { url = uri('https://jitpack.io') }
+    }
+}
+
+rootProject.buildDir = "../build"
+subprojects {
+    project.buildDir = "${rootProject.buildDir}/${project.name}"
+}
+subprojects { subproject ->
+    subproject.afterEvaluate {
+        def androidExtension = subproject.extensions.findByName("android")
+        if (androidExtension != null && androidExtension.hasProperty("compileSdk")) {
+            androidExtension.compileSdk = 36
+        }
+    }
+    subproject.tasks.withType(JavaCompile).configureEach {
+        options.compilerArgs.add("-Xlint:-options")
+    }
+}
+subprojects {
+    project.evaluationDependsOn(":app")
+}
+
+tasks.register("clean", Delete) {
+    delete rootProject.buildDir
+}
