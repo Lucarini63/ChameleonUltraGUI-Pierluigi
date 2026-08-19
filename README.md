@@ -2,6 +2,8 @@
 
 Interfaccia Flutter multipiattaforma per Chameleon Ultra e Chameleon Lite.
 
+[![Scarica APK](https://img.shields.io/badge/Download-APK-2ea44f?logo=android&logoColor=white)](https://github.com/Lucarini63/ChameleonUltraGUI-Pierluigi/releases/latest)
+
 > **Fork non ufficiale.** Questo repository deriva da
 > [GameTec-live/ChameleonUltraGUI](https://github.com/GameTec-live/ChameleonUltraGUI)
 > e contiene modifiche sviluppate per il fork di Pierluigi. Il progetto originale,
@@ -11,6 +13,7 @@ Interfaccia Flutter multipiattaforma per Chameleon Ultra e Chameleon Lite.
 
 - gestione connessione, slot, carte salvate e Dump Editor;
 - lettura MIFARE Classic con dizionari selezionabili, avanzamento, annullamento e pianificazione automatica del recupero;
+- scrittura MIFARE Classic con scelta tra mantenere l’UID originale oppure generarne uno nuovo, quando il tipo di carta lo consente;
 - lettura sicura NTAG/Ultralight con analisi `AUTH0`, `PROT` e `AUTHLIM`;
 - riconoscimento MIFARE DESFire e informazioni ISO/IEC 14443-4;
 - MFKey32 e recupero delle chiavi da acquisizioni autorizzate;
@@ -20,6 +23,38 @@ Interfaccia Flutter multipiattaforma per Chameleon Ultra e Chameleon Lite.
 - attesa e riconnessione automatica opzionale del Chameleon.
 
 Alcune funzioni dipendono dalle capacità esposte dal firmware installato sul dispositivo.
+
+## Novità del fork
+
+- pianificatore automatico che sceglie il percorso di recupero MIFARE Classic più adatto;
+- dizionari ordinati dal più piccolo al più grande, con selezione iniziale del più piccolo;
+- arresto al termine del dizionario selezionato, annullamento e indicatore di avanzamento;
+- avvio automatico del recupero quando il dizionario non trova le chiavi necessarie;
+- controllo adattivo delle chiavi mancanti e messaggi distinti per Darkside e Nested;
+- riconoscimento MIFARE DESFire/ISO-DEP senza interferire con i flussi Classic e Ultralight;
+- audit NTAG/Ultralight, esportazione dei dati letti e dizionario dedicato `ntag_audit.dic`;
+- acquisizione e analisi Sniffing LF/HF, con riepiloghi, frame, nonce e dati grezzi;
+- connessione automatica opzionale in attesa della disponibilità del Chameleon;
+- scelta, durante la scrittura compatibile, tra UID originale e nuovo UID casuale.
+
+## Schermate
+
+| Funzione | Anteprima |
+| --- | --- |
+| **Connessione automatica** — resta in attesa del Chameleon e si collega quando diventa disponibile. | <img src="docs/images/automatic-connection.png" alt="Impostazione della connessione automatica" width="280"> |
+| **Lettura HF e LF** — riconoscimento guidato della tecnologia e scelta automatica del percorso di lettura appropriato. | <img src="docs/images/read-card.png" alt="Pagina di lettura delle carte HF e LF" width="280"> |
+| **Strumenti LF/HF** — dizionari, pulizia T55XX e analisi delle acquisizioni Sniffing. | <img src="docs/images/tools-sniffing.png" alt="Strumenti e funzioni Sniffing LF e HF" width="280"> |
+| **MFKEY32** — acquisizione assistita, conteggio letture, gruppi compatibili e chiavi recuperate. | <img src="docs/images/mfkey32.png" alt="Pagina MFKEY32" width="280"> |
+
+Le schermate non contengono UID di carte, chiavi o identificativi Bluetooth reali.
+
+## Installazione Android
+
+L’APK pronto per i test è disponibile nella pagina
+[GitHub Releases](https://github.com/Lucarini63/ChameleonUltraGUI-Pierluigi/releases/latest).
+Scaricare `ChameleonUltraGUI.apk` e consentire temporaneamente l’installazione da
+fonti esterne sul dispositivo Android. La build pubblicata è una versione di prova:
+verificare sempre l’hash SHA-256 indicato nelle note della release.
 
 ## Requisiti di sviluppo
 
