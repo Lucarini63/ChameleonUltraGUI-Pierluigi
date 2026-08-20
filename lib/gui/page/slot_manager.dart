@@ -7,6 +7,7 @@ import 'package:chameleonultragui/helpers/definitions.dart';
 import 'package:chameleonultragui/helpers/general.dart';
 import 'package:chameleonultragui/helpers/mifare_classic/general.dart';
 import 'package:chameleonultragui/helpers/mifare_ultralight/general.dart';
+import 'package:chameleonultragui/helpers/slot_card_sync.dart';
 import 'package:chameleonultragui/main.dart';
 import 'package:chameleonultragui/sharedprefsprovider.dart';
 import 'package:flutter/material.dart';
@@ -25,6 +26,7 @@ class SlotManagerPage extends StatefulWidget {
 }
 
 class SlotManagerPageState extends State<SlotManagerPage> {
+  Future<void>? _loadSlotDataFuture;
   List<SlotTypes> usedSlots = List.generate(
     8,
     (_) => SlotTypes(),
@@ -44,7 +46,11 @@ class SlotManagerPageState extends State<SlotManagerPage> {
   int gridPosition = 0;
   bool onlyOneSlot = false;
 
-  Future<void> loadSlotData() async {
+  Future<void> loadSlotData() {
+    return _loadSlotDataFuture ??= _loadSlotData();
+  }
+
+  Future<void> _loadSlotData() async {
     if (progress != -1) {
       return;
     }
@@ -60,9 +66,46 @@ class SlotManagerPageState extends State<SlotManagerPage> {
       slot.hf = slot.hf.isEmpty ? localizations.no_name : slot.hf;
       slot.lf = slot.lf.isEmpty ? localizations.no_name : slot.lf;
     }
+
+    final savedCards = appState.sharedPreferencesProvider.getCards();
+    final syncResult = await importMissingCardsFromSlots(
+      communicator: appState.communicator!,
+      slotTypes: usedSlots,
+      slotNames: slotData,
+      savedCards: savedCards,
+    );
+    if (syncResult.importedCards.isNotEmpty) {
+      savedCards.addAll(syncResult.importedCards);
+      appState.sharedPreferencesProvider.setCards(savedCards);
+      appState.changesMade();
+    }
+    for (final failure in syncResult.failures) {
+      appState.log?.w(
+        'Automatic slot import failed for slot ${failure.slot + 1} '
+        '${failure.frequency.name}: ${failure.error}',
+      );
+    }
+    if (mounted &&
+        (syncResult.importedCards.isNotEmpty ||
+            syncResult.failures.isNotEmpty)) {
+      final italian = Localizations.localeOf(context).languageCode == 'it';
+      final imported = syncResult.importedCards.length;
+      final failed = syncResult.failures.length;
+      final message = failed == 0
+          ? italian
+              ? 'Importate $imported nuove carte dagli slot.'
+              : 'Imported $imported new cards from slots.'
+          : italian
+              ? 'Importate $imported carte; $failed contenuti non sono stati letti.'
+              : 'Imported $imported cards; $failed slot contents could not be read.';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message)),
+      );
+    }
   }
 
   void refreshSlot() {
+    _loadSlotDataFuture = null;
     setUploadState(-1);
 
     var appState = context.read<ChameleonGUIState>();

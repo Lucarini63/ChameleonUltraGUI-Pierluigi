@@ -4,8 +4,7 @@ import 'dart:io';
 import 'package:chameleonultragui/gui/component/card_list.dart';
 import 'package:chameleonultragui/gui/component/toggle_buttons.dart';
 import 'package:chameleonultragui/helpers/definitions.dart';
-import 'package:chameleonultragui/helpers/mifare_classic/general.dart';
-import 'package:chameleonultragui/helpers/mifare_ultralight/general.dart';
+import 'package:chameleonultragui/helpers/slot_card_sync.dart';
 import 'package:flutter/material.dart';
 import 'package:chameleonultragui/helpers/general.dart';
 import 'package:chameleonultragui/sharedprefsprovider.dart';
@@ -37,128 +36,15 @@ class SlotExportMenuState extends State<SlotExportMenu> {
   TagFrequency exportFrequency = TagFrequency.unknown;
 
   Future<CardSave?> rebuildCardSaveFromSlot(TagFrequency frequency) async {
-    var appState = context.read<ChameleonGUIState>();
-
-    if (frequency == TagFrequency.lf) {
-      if (isEM410X(widget.slotTypes.lf)) {
-        return CardSave(
-          uid: bytesToHexSpace(
-              await appState.communicator!.getEM410XEmulatorID()),
-          name: widget.names.lf,
-          tag: widget.slotTypes.lf,
-        );
-      } else if (widget.slotTypes.lf == TagType.hidProx) {
-        return CardSave(
-          uid: (await appState.communicator!.getHIDProxEmulatorID()).toString(),
-          name: widget.names.lf,
-          tag: widget.slotTypes.lf,
-        );
-      } else if (widget.slotTypes.lf == TagType.viking) {
-        return CardSave(
-          uid: (await appState.communicator!.getVikingEmulatorID()).toString(),
-          name: widget.names.lf,
-          tag: widget.slotTypes.lf,
-        );
-      }
-    } else {
-      CardData data = await appState.communicator!.mf1GetAntiCollData();
-
-      if (isMifareUltralight(widget.slotTypes.hf)) {
-        int pageCount = mfUltralightGetPagesCount(widget.slotTypes.hf);
-        List<Uint8List> pages = [];
-
-        for (int page = 0; page < pageCount; page++) {
-          Uint8List pageData =
-              await appState.communicator!.mf0EmulatorReadPages(page, 1);
-          pages.add(pageData);
-        }
-
-        CardSaveExtra extraData = CardSaveExtra();
-
-        Uint8List version =
-            await appState.communicator!.mf0EmulatorGetVersionData();
-        if (version.isNotEmpty) {
-          extraData.ultralightVersion = version;
-        }
-
-        Uint8List signature =
-            await appState.communicator!.mf0EmulatorGetSignatureData();
-        if (signature.isNotEmpty) {
-          extraData.ultralightSignature = signature;
-        }
-
-        if (mfUltralightHasCounters(widget.slotTypes.hf)) {
-          List<int> counters = [];
-          int counterCount = mfUltralightGetCounterCount(widget.slotTypes.hf);
-
-          for (int i = 0; i < counterCount; i++) {
-            var counterData =
-                await appState.communicator!.mf0EmulatorGetCounterData(i);
-            counters.add(counterData.$1);
-          }
-
-          if (counters.isNotEmpty) {
-            extraData.ultralightCounters = counters;
-          }
-        }
-
-        return CardSave(
-          uid: bytesToHexSpace(data.uid),
-          name: widget.names.hf,
-          sak: data.sak,
-          atqa: data.atqa,
-          ats: data.ats,
-          tag: widget.slotTypes.hf,
-          data: pages,
-          extraData: extraData,
-        );
-      } else {
-        int blockCount = mfClassicGetBlockCount(
-            chameleonTagTypeGetMfClassicType(widget.slotTypes.hf));
-
-        Uint8List binData = Uint8List(blockCount * 16);
-
-        int readCount = 16;
-        int binDataIndex = 0;
-
-        for (int currentBlock = 0;
-            currentBlock < blockCount;
-            currentBlock += readCount) {
-          Uint8List result = await appState.communicator!
-              .mf1GetEmulatorBlock(currentBlock, readCount);
-
-          binData.setAll(binDataIndex, result);
-          binDataIndex += result.length;
-        }
-
-        int remainingBlocks = blockCount % readCount;
-
-        if (remainingBlocks != 0) {
-          Uint8List result = await appState.communicator!.mf1GetEmulatorBlock(
-              blockCount - remainingBlocks, remainingBlocks);
-          binData.setAll(binDataIndex, result);
-        }
-
-        List<Uint8List> blocks = [];
-
-        for (int i = 0; i < binData.length; i += 16) {
-          Uint8List block = Uint8List.fromList(binData.sublist(i, i + 16));
-          blocks.add(block);
-        }
-
-        return CardSave(
-          uid: bytesToHexSpace(data.uid),
-          name: widget.names.hf,
-          sak: data.sak,
-          atqa: data.atqa,
-          ats: data.ats,
-          tag: widget.slotTypes.hf,
-          data: blocks,
-        );
-      }
-    }
-
-    return null;
+    final appState = context.read<ChameleonGUIState>();
+    return readCardSaveFromActiveSlot(
+      communicator: appState.communicator!,
+      tag: frequency == TagFrequency.hf
+          ? widget.slotTypes.hf
+          : widget.slotTypes.lf,
+      frequency: frequency,
+      name: frequency == TagFrequency.hf ? widget.names.hf : widget.names.lf,
+    );
   }
 
   Future<void> onTap(
